@@ -32,11 +32,11 @@ RUN for i in {1..5}; do \
     done || (echo "Failed to upgrade pip after retries" && exit 1)
 
 # Install Python packages with retries, verbose output, and specific bleak version
-RUN for i in {1..15}; do \  # Increase retries to 15 for better reliability
+RUN for i in {1..15}; do \
     pip3 install --no-cache-dir --verbose \
-        bleak==0.12.1 \
+        bleak==0.22.3 \
         paho-mqtt && \
-    break || sleep 20; \  # Increase delay to 20 seconds
+    break || sleep 20; \
     done || (echo "Failed to install Python packages after retries" && pip3 list && cat /var/log/pip.log && exit 1)
 
 # Verify bleak installation with detailed logging
