@@ -1,29 +1,17 @@
-name: "Renogy Bluetooth Monitor"
-description: "Home Assistant add-on to monitor Renogy BMS devices via Bluetooth"
-version: "1.0.0"
-slug: "renogy_bt_ha"
+name: "Renogy BT"
+version: "0.0.1"
+slug: "renogy_bt"
+description: "Renogy BT Addon for Bluetooth monitoring"
 arch:
   - aarch64
-  - amd64
-  - armv7
-init: false
+url: "https://github.com/FortezzaJ/home-assistant-addons"
 startup: "application"
-log: true  # Enable logs in the Home Assistant UI
-options:
-  device_mac: ""
-  device_alias: ""
-  mqtt_host: "core-mosquitto"
-  mqtt_port: 1883
-  mqtt_username: ""
-  mqtt_password: ""
-schema:
-  device_mac: str
-  device_alias: str?
-  mqtt_host: str
-  mqtt_port: int
-  mqtt_username: str
-  mqtt_password: str
-ports:
-  1883/tcp: null
-map:
-  - config:rw
+boot: "auto"
+host_network: true
+devices:
+  - "/dev/ttyS0:/dev/ttyS0"  # Keep for serial, if needed
+services:
+  - mqtt:provide
+  - bluetooth:provide
+options: {}
+schema: {}
