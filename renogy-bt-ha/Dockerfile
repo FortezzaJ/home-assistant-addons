@@ -1,7 +1,7 @@
 ARG BUILD_FROM=ghcr.io/home-assistant/aarch64-base:latest
 FROM $BUILD_FROM
 
-# Install minimal system dependencies required for bleak and Bluetooth
+# Install minimal system dependencies required for Bluetooth (no Python packages yet)
 RUN apk add --no-cache \
     python3 \
     py3-pip \
@@ -29,7 +29,7 @@ RUN for i in {1..5}; do \
     pip3 install --no-cache-dir --upgrade pip && break || sleep 10; \
     done || (echo "Failed to upgrade pip after retries" && exit 1)
 
-# Check if bleak is already installed; install it only if not present
+# Check if bleak is already installed in the system; install only if not present
 RUN if ! python3 -c "import bleak" 2>/dev/null; then \
     for i in {1..15}; do \
         pip3 install --no-cache-dir --verbose \
