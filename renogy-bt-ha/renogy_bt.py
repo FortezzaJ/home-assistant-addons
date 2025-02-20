@@ -2,7 +2,7 @@
 import logging
 import asyncio
 import os
-from bleak import BleakClient
+from bleak import BleakClient, BleakScanner
 import paho.mqtt.client as mqtt
 import json
 
@@ -14,10 +14,26 @@ logger = logging.getLogger(__name__)
 RENOGY_SERVICE_UUID = "0000fff0-0000-1000-8000-00805f9b34fb"
 RENOGY_CHAR_UUID = "0000fff1-0000-1000-8000-00805f9b34fb"
 
+async def discover_device(mac_address):
+    logger.info(f"Discovering Renogy device at {mac_address}...")
+    try:
+        device = await BleakScanner.find_device_by_address(mac_address, timeout=20.0)
+        if device:
+            logger.info(f"Device found: {device}")
+            return device
+        logger.error(f"Device {mac_address} not found")
+        return None
+    except Exception as e:
+        logger.error(f"Discovery failed: {e}")
+        return None
+
 async def connect_to_renogy(mac_address):
     logger.info(f"Connecting to Renogy device at {mac_address}...")
+    device = await discover_device(mac_address)
+    if not device:
+        return None
     try:
-        async with BleakClient(mac_address, timeout=20.0) as client:  # Updated for newer bleak versions
+        async with BleakClient(device, timeout=20.0) as client:
             logger.info("Successfully connected to Renogy device")
             return client
     except Exception as e:
