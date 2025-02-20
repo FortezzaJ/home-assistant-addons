@@ -17,10 +17,9 @@ RENOGY_CHAR_UUID = "0000fff1-0000-1000-8000-00805f9b34fb"
 async def connect_to_renogy(mac_address):
     logger.info(f"Connecting to Renogy device at {mac_address}...")
     try:
-        client = BleakClient(mac_address)
-        await client.connect()
-        logger.info("Successfully connected to Renogy device")
-        return client
+        async with BleakClient(mac_address, timeout=20.0) as client:  # Updated for newer bleak versions
+            logger.info("Successfully connected to Renogy device")
+            return client
     except Exception as e:
         logger.error(f"Failed to connect: {e}")
         return None
