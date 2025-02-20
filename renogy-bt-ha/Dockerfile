@@ -1,7 +1,7 @@
 ARG BUILD_FROM=ghcr.io/home-assistant/aarch64-base:latest
 FROM $BUILD_FROM
 
-# Install minimal system dependencies required for Bluetooth (no Python packages yet)
+# Install system dependencies for Bluetooth and Python
 RUN apk add --no-cache \
     python3 \
     py3-pip \
@@ -10,31 +10,34 @@ RUN apk add --no-cache \
     gcc \
     musl-dev \
     build-base \
-    linux-headers
+    linux-headers \
+    bash \
+    curl
 
-# Check Python version
-RUN python3 --version
+# Install bashio (latest stable version as of Feb 2025)
+RUN curl -J -L -o /tmp/bashio.tar.gz "https://github.com/hassio-addons/bashio/archive/refs/tags/v0.16.2.tar.gz" && \
+    mkdir -p /usr/lib/bashio && \
+    tar -xzf /tmp/bashio.tar.gz -C /usr/lib/bashio --strip-components=1 && \
+    rm /tmp/bashio.tar.gz && \
+    ln -s /usr/lib/bashio/bashio.sh /usr/bin/bashio && \
+    chmod +x /usr/bin/bashio
 
-# Install bashio for Home Assistant add-on compatibility
-RUN mkdir -p /usr/local/bin/bashio && \
-    wget -O /usr/local/bin/bashio/bashio "https://github.com/hassio-addons/bashio/archive/main.tar.gz" && \
-    tar -xzf /usr/local/bin/bashio/bashio --strip 1 && \
-    chmod a+x /usr/local/bin/bashio/bashio
+# Ensure pip is installed and upgraded
+RUN python3 -m ensurepip --upgrade && \
+    pip3 install --no-cache-dir --upgrade pip
 
-# Ensure pip is installed and upgraded correctly, with retries
-RUN for i in {1..5}; do \
-    python3 -m ensurepip --upgrade && break || sleep 10; \
-    done || (echo "Failed to install ensurepip after retries" && exit 1)
-RUN for i in {1..5}; do \
-    pip3 install --no-cache-dir --upgrade pip && break || sleep 10; \
-    done || (echo "Failed to upgrade pip after retries" && exit 1)
+# Install Python dependencies from renogy_bt.py
+RUN pip3 install --no-cache-dir \
+    renogybt \
+    paho-mqtt \
+    pybluez
 
 # Copy add-on files
 COPY run.sh /run.sh
 COPY renogy_bt.py /renogy_bt.py
 
 # Set permissions
-RUN chmod a+x /run.sh
+RUN chmod a+x /run.sh /renogy_bt.py
 
 # Run the script
 CMD ["/run.sh"]
