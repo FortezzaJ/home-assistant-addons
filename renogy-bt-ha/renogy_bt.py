@@ -17,7 +17,7 @@ RENOGY_CHAR_UUID = "0000fff1-0000-1000-8000-00805f9b34fb"
 async def discover_device(mac_address):
     logger.info(f"Discovering Renogy device at {mac_address}...")
     try:
-        device = await BleakScanner.find_device_by_address(mac_address, timeout=20.0)
+        device = await BleakScanner.find_device_by_address(mac_address, active=True, timeout=20.0)
         if device:
             logger.info(f"Device found: {device}")
             return device
