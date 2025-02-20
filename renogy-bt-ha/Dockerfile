@@ -10,7 +10,7 @@ RUN apk add --no-cache \
     gcc \
     musl-dev \
     build-base \
-    linux-headers  # Add linux-headers for potential compilation issues
+    linux-headers
 
 # Check Python version
 RUN python3 --version
@@ -35,7 +35,7 @@ RUN for i in {1..10}; do \
         bleak==0.12.1 \
         paho-mqtt && \
     break || sleep 15; \
-    done || (echo "Failed to install Python packages after retries" && pip3 list && cat /var/log/pip.log && exit 1)
+    done || (echo "Failed to install Python packages after retries" && exit 1)
 
 # Verify bleak installation with detailed logging
 RUN python3 -c "import bleak; print('Bleak installed successfully')" || (echo "Bleak installation failed" && pip3 show bleak || pip3 list && cat /var/log/pip.log && echo "Checking logs for details" && exit 1)
