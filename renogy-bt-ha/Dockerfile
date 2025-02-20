@@ -1,7 +1,7 @@
 ARG BUILD_FROM=ghcr.io/home-assistant/aarch64-base:latest
 FROM $BUILD_FROM
 
-# Install minimal system dependencies required for Bluetooth (no Python packages yet)
+# Install system dependencies required for bleak and Bluetooth, matching ble_monitor needs
 RUN apk add --no-cache \
     python3 \
     py3-pip \
@@ -10,7 +10,9 @@ RUN apk add --no-cache \
     gcc \
     musl-dev \
     build-base \
-    linux-headers
+    linux-headers \
+    glibc \
+    zlib-dev
 
 # Check Python version
 RUN python3 --version
@@ -28,6 +30,17 @@ RUN for i in {1..5}; do \
 RUN for i in {1..5}; do \
     pip3 install --no-cache-dir --upgrade pip && break || sleep 10; \
     done || (echo "Failed to upgrade pip after retries" && exit 1)
+
+# Install bleak and paho-mqtt with retries, verbose output, and specific version (matching HA core)
+RUN for i in {1..15}; do \  # Increased retries for reliability
+    pip3 install --no-cache-dir --verbose \
+        bleak==0.22.3 \
+        paho-mqtt && \
+    break || sleep 20; \  # Increased delay for network issues
+    done || (echo "Failed to install Python packages after retries" && pip3 list && cat /var/log/pip.log && exit 1)
+
+# Verify bleak installation with detailed logging
+RUN python3 -c "import bleak; print('Bleak installed successfully')" || (echo "Bleak installation failed" && pip3 show bleak || pip3 list && cat /var/log/pip.log && echo "Checking logs for details" && exit 1)
 
 # Copy add-on files
 COPY run.sh /run.sh
