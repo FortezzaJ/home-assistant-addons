@@ -29,21 +29,6 @@ RUN for i in {1..5}; do \
     pip3 install --no-cache-dir --upgrade pip && break || sleep 10; \
     done || (echo "Failed to upgrade pip after retries" && exit 1)
 
-# Check if bleak is already installed in the system; install only if not present
-RUN if ! python3 -c "import bleak" 2>/dev/null; then \
-    for i in {1..15}; do \
-        pip3 install --no-cache-dir --verbose \
-            bleak==0.22.3 \
-            paho-mqtt && \
-        break || sleep 20; \
-        done || (echo "Failed to install Python packages after retries" && pip3 list && cat /var/log/pip.log && exit 1); \
-    else \
-        echo "Bleak is already installed"; \
-    fi
-
-# Verify bleak installation with detailed logging
-RUN python3 -c "import bleak; print('Bleak installed successfully')" || (echo "Bleak installation failed" && pip3 show bleak || pip3 list && cat /var/log/pip.log && echo "Checking logs for details" && exit 1)
-
 # Copy add-on files
 COPY run.sh /run.sh
 COPY renogy_bt.py /renogy_bt.py
