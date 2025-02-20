@@ -1,7 +1,7 @@
 ARG BUILD_FROM=ghcr.io/home-assistant/aarch64-base:latest
 FROM $BUILD_FROM
 
-# Install all necessary system dependencies for bleak and Bluetooth, including potential missing ones
+# Install minimal system dependencies required for bleak and Bluetooth
 RUN apk add --no-cache \
     python3 \
     py3-pip \
@@ -10,9 +10,7 @@ RUN apk add --no-cache \
     gcc \
     musl-dev \
     build-base \
-    linux-headers \
-    glibc \
-    zlib-dev  # Add zlib-dev for potential compilation issues
+    linux-headers
 
 # Check Python version
 RUN python3 --version
@@ -31,13 +29,17 @@ RUN for i in {1..5}; do \
     pip3 install --no-cache-dir --upgrade pip && break || sleep 10; \
     done || (echo "Failed to upgrade pip after retries" && exit 1)
 
-# Install Python packages with retries, verbose output, and specific bleak version
-RUN for i in {1..15}; do \
-    pip3 install --no-cache-dir --verbose \
-        bleak==0.22.3 \
-        paho-mqtt && \
-    break || sleep 20; \
-    done || (echo "Failed to install Python packages after retries" && pip3 list && cat /var/log/pip.log && exit 1)
+# Check if bleak is already installed; install it only if not present
+RUN if ! python3 -c "import bleak" 2>/dev/null; then \
+    for i in {1..15}; do \
+        pip3 install --no-cache-dir --verbose \
+            bleak==0.22.3 \
+            paho-mqtt && \
+        break || sleep 20; \
+        done || (echo "Failed to install Python packages after retries" && pip3 list && cat /var/log/pip.log && exit 1); \
+    else \
+        echo "Bleak is already installed"; \
+    fi
 
 # Verify bleak installation with detailed logging
 RUN python3 -c "import bleak; print('Bleak installed successfully')" || (echo "Bleak installation failed" && pip3 show bleak || pip3 list && cat /var/log/pip.log && echo "Checking logs for details" && exit 1)
