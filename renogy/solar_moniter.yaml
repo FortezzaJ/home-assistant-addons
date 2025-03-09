@@ -1,0 +1,429 @@
+
+
+captive_portal:
+
+substitutions:
+  ble_mac_address: "02:1B:8C:48:C2:B2"
+  nominal_voltage: "24"  # Adjusted to 24V based on your system
+  poll_interval: "10"    # Polling interval in seconds
+
+esp32_ble_tracker:
+  scan_parameters:
+    interval: 800ms
+    window: 400ms
+    active: true
+
+ble_client:
+  - mac_address: ${ble_mac_address}
+    id: renogy_rover_esp32_bc
+    auto_connect: true
+    on_connect:
+      then:
+        - logger.log: "BLE client connected to rover"
+        - delay: 3s
+        - ble_client.ble_write:
+            id: renogy_rover_esp32_bc
+            service_uuid: "0000ffd0-0000-1000-8000-00805f9b34fb"
+            characteristic_uuid: "0000ffd1-0000-1000-8000-00805f9b34fb"
+            value: !lambda |-
+              std::vector<uint8_t> request = {255, 3, 1, 0, 0, 34, 209, 241};
+              ESP_LOGI("ble_write", "Sending initial request: %s", format_hex_pretty(request).c_str());
+              return request;
+    on_disconnect:
+      then:
+        - logger.log: "BLE client disconnected from rover"
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+sensor:
+  - platform: ble_client
+    ble_client_id: renogy_rover_esp32_bc
+    id: renogy_rover_esp32_sensor
+    internal: true
+    type: characteristic
+    service_uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    characteristic_uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+    notify: true
+    update_interval: never
+    lambda: |-
+      static std::vector<uint8_t> buffer;
+
+      buffer.insert(buffer.end(), x.begin(), x.end());
+      ESP_LOGD("ble_client_lambda", "Received fragment: %s, buffer size: %d", format_hex_pretty(x).c_str(), buffer.size());
+
+      if (buffer.size() >= 73 && buffer[0] == 255 && buffer[1] == 3 && buffer[2] == 68) {
+        ESP_LOGD("ble_client_lambda", "Full response: %s", format_hex_pretty(buffer).c_str());
+
+        // Battery SOC (Reg 0100H)
+        uint16_t battery_soc_raw = (buffer[3] << 8) | buffer[4];
+        id(battery_soc).publish_state(battery_soc_raw);
+
+        // Battery Voltage (Reg 0101H)
+        uint16_t battery_voltage_raw = (buffer[5] << 8) | buffer[6];
+        id(battery_voltage).publish_state(battery_voltage_raw / 10.0);
+
+        // Charging Current (Reg 0102H)
+        uint16_t charging_current_raw = (buffer[7] << 8) | buffer[8];
+        id(charging_current).publish_state(charging_current_raw / 100.0);
+
+        // Battery Temperature (Reg 0103H, byte 0)
+        uint16_t battery_temp_raw = buffer[9];
+        int16_t battery_temp_signed = (battery_temp_raw & 0x80) ? -(128 - (battery_temp_raw & 0x7F)) : battery_temp_raw;
+        id(battery_temperature).publish_state(battery_temp_signed);
+
+        // Solar Voltage (Reg 0107H)
+        uint16_t solar_voltage_raw = (buffer[19] << 8) | buffer[20];
+        id(solar_voltage).publish_state(solar_voltage_raw / 10.0);
+
+        // Solar Current (Reg 0108H)
+        uint16_t solar_current_raw = (buffer[21] << 8) | buffer[22];
+        id(solar_current).publish_state(solar_current_raw / 100.0);
+
+        // Solar Power (Reg 0109H)
+        uint16_t solar_power_raw = (buffer[23] << 8) | buffer[24];
+        float solar_voltage = solar_voltage_raw / 10.0;
+        float solar_current = solar_current_raw / 100.0;
+        float calculated_solar_power = solar_voltage * solar_current;
+        float rounded_solar_power = std::max(round(calculated_solar_power), (calculated_solar_power > 0.1) ? 1.0f : 0.0f);
+        id(solar_power).publish_state(rounded_solar_power);
+
+        // Battery Min Voltage of Current Day (Reg 010BH)
+        uint16_t batt_min_voltage_raw = (buffer[27] << 8) | buffer[28];
+        ESP_LOGD("battery_min_voltage", "Raw batt_min_voltage_raw: %d", batt_min_voltage_raw);
+        id(battery_min_voltage).publish_state(batt_min_voltage_raw / 10.0);
+
+        // Battery Max Voltage of Current Day (Reg 010CH)
+        uint16_t batt_max_voltage_raw = (buffer[29] << 8) | buffer[30];
+        ESP_LOGD("battery_max_voltage", "Raw batt_max_voltage_raw: %d", batt_max_voltage_raw);
+        float batt_max_voltage = batt_max_voltage_raw / 10.0;
+        id(battery_max_voltage).publish_state(batt_max_voltage);
+
+        // Max Charging Current of Current Day (Reg 010DH)
+        uint16_t max_charge_current_raw = (buffer[31] << 8) | buffer[32];
+        ESP_LOGD("max_charging_current", "Raw max_charge_current_raw: %d", max_charge_current_raw);
+        id(max_charging_current).publish_state(max_charge_current_raw / 100.0);
+
+        // Max Inverter Current (Reg 010EH)
+        uint16_t max_inverter_current_raw = (buffer[33] << 8) | buffer[34];
+        id(max_inverter_current).publish_state(max_inverter_current_raw / 100.0);
+
+        // Max Charging Power of Current Day (Reg 010FH)
+        uint16_t max_charge_power_raw = (buffer[35] << 8) | buffer[36];
+        ESP_LOGD("max_charging_power", "Raw max_charge_power_raw: %d", max_charge_power_raw);
+        id(max_charging_power).publish_state(max_charge_power_raw);
+
+        // Max Inverter Power (Reg 0110H)
+        uint16_t max_inverter_power_raw = (buffer[37] << 8) | buffer[38];
+        id(max_inverter_power).publish_state(max_inverter_power_raw);
+
+        // Battery Charging Energy Daily (Reg 0111H, converted from Ah to kWh)
+        uint16_t charge_ah_raw = (buffer[39] << 8) | buffer[40];
+        ESP_LOGD("battery_charging_daily", "Raw charge_ah_raw: %d", charge_ah_raw);
+        float charge_kwh = (charge_ah_raw * ${nominal_voltage}) / 1000.0;
+        id(battery_charging_energy_daily).publish_state(charge_kwh);
+
+        // Battery Discharging Energy Daily (Reg 0112H, converted from Ah to kWh)
+        uint16_t inverter_ah_raw = (buffer[41] << 8) | buffer[42];
+        float inverter_kwh = (inverter_ah_raw * ${nominal_voltage}) / 1000.0 / 100.0;
+        id(battery_discharging_energy_daily).publish_state(inverter_kwh);
+
+        // Solar Production Daily (Reg 0113H) - Debug raw value
+        uint16_t power_gen_raw = (buffer[43] << 8) | buffer[44];
+        ESP_LOGD("solar_daily", "Raw power_gen_raw: %d", power_gen_raw);
+        id(solar_production_daily).publish_state(power_gen_raw / 1000.0);
+
+        // Total Operating Days (Reg 0115H)
+        uint16_t total_days_raw = (buffer[47] << 8) | buffer[48];
+        id(total_operating_days).publish_state(total_days_raw);
+
+        // Total Number of Battery Over-Discharges (Reg 0116H)
+        uint16_t over_discharges_raw = (buffer[49] << 8) | buffer[50];
+        id(total_over_discharges).publish_state(over_discharges_raw);
+
+        // Total Number of Battery Full-Charges (Reg 0117H)
+        uint16_t full_charges_raw = (buffer[51] << 8) | buffer[52];
+        id(total_full_charges).publish_state(full_charges_raw);
+
+        // Battery Charging Energy Total (Reg 0118H-0119H, 32-bit, converted from Ah to kWh)
+        uint32_t total_charge_ah_raw = ((uint32_t)buffer[53] << 24) | ((uint32_t)buffer[54] << 16) | (buffer[55] << 8) | buffer[56];
+        float total_charge_kwh = (total_charge_ah_raw * ${nominal_voltage}) / 1000.0 / 10000.0;
+        id(battery_charging_energy_total).publish_state(total_charge_kwh);
+
+        // Battery Discharging Energy Total (Reg 011AH-011BH, 32-bit, converted from Ah to kWh)
+        uint32_t total_inverter_ah_raw = ((uint32_t)buffer[57] << 24) | ((uint32_t)buffer[58] << 16) | (buffer[59] << 8) | buffer[60];
+        float total_inverter_kwh = (total_inverter_ah_raw * ${nominal_voltage}) / 1000.0;
+        id(battery_discharging_energy_total).publish_state(total_inverter_kwh);
+
+        // Solar Production Total (Reg 011CH-011DH, 32-bit) - Debug raw value
+        uint32_t cumulative_power_gen_raw = ((uint32_t)buffer[61] << 24) | ((uint32_t)buffer[62] << 16) | (buffer[63] << 8) | buffer[64];
+        ESP_LOGD("solar_total", "Raw cumulative_power_gen_raw: %u", cumulative_power_gen_raw);
+        id(solar_production_total).publish_state(cumulative_power_gen_raw / 220000000.0);
+
+        // Charging Status (Reg 0120H, lower byte)
+        uint8_t charging_status_raw = buffer[70];
+        id(charging_status).publish_state(charging_status_raw);
+
+        buffer.clear();
+      } else if (buffer.size() > 73) {
+        ESP_LOGW("ble_client_lambda", "Buffer overflow, clearing: %d bytes", buffer.size());
+        buffer.clear();
+      }
+      return 0.0;
+
+  # Template Sensors with Energy Dashboard-Compatible Names and Classes
+  - platform: template
+    name: "Battery SOC"
+    id: battery_soc
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    device_class: battery
+    state_class: measurement
+
+  - platform: template
+    name: "Battery Voltage"
+    id: battery_voltage
+    unit_of_measurement: "V"
+    accuracy_decimals: 1
+    device_class: voltage
+    state_class: measurement
+
+  - platform: template
+    name: "Charging Current"
+    id: charging_current
+    unit_of_measurement: "A"
+    accuracy_decimals: 2
+    device_class: current
+    state_class: measurement
+
+  - platform: template
+    name: "Battery Temperature"
+    id: battery_temperature
+    unit_of_measurement: "°C"
+    accuracy_decimals: 0
+    device_class: temperature
+    state_class: measurement
+
+  - platform: template
+    name: "Solar Voltage"
+    id: solar_voltage
+    unit_of_measurement: "V"
+    accuracy_decimals: 1
+    device_class: voltage
+    state_class: measurement
+
+  - platform: template
+    name: "Solar Current"
+    id: solar_current
+    unit_of_measurement: "A"
+    accuracy_decimals: 2
+    device_class: current
+    state_class: measurement
+
+  - platform: template
+    name: "Solar Power"
+    id: solar_power
+    unit_of_measurement: "W"
+    accuracy_decimals: 0
+    device_class: power
+    state_class: measurement
+
+  - platform: template
+    name: "Total Solar Energy"
+    id: total_solar_energy
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 2
+    device_class: energy
+    state_class: total_increasing
+    update_interval: ${poll_interval}s
+    lambda: |-
+      static float total_energy_kwh = 0.0;
+      if (id(solar_power).has_state()) {
+        float power_w = id(solar_power).state;  // Get current power in watts
+        float interval_hours = ${poll_interval} / 3600.0;  // Convert interval (seconds) to hours
+        float energy_kwh = (power_w * interval_hours) / 1000.0;  // Convert Wh to kWh
+        total_energy_kwh += energy_kwh;  // Accumulate total energy
+        ESP_LOGD("energy_calc", "Power: %f W, Interval: %f h, Energy: %f kWh, Total: %f kWh", power_w, interval_hours, energy_kwh, total_energy_kwh);
+        return total_energy_kwh;  // Return the accumulated total
+      }
+      return total_energy_kwh;  // Return current total if no new state
+
+  - platform: template
+    name: "Solar Production Daily Calculated"
+    id: solar_production_daily_calculated
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 2
+    device_class: energy
+    state_class: total
+    update_interval: 10s
+    lambda: |-
+      static float daily_energy_kwh = 0.0;
+      static int last_day = -1;
+      auto now = id(homeassistant_time).now();
+      int current_day = now.day_of_month;
+
+      if (last_day == -1 || last_day != current_day) {
+        // Reset daily energy at the start of a new day
+        daily_energy_kwh = 0.0;
+        last_day = current_day;
+      }
+
+      if (id(total_solar_energy).has_state()) {
+        static float last_total_energy = 0.0;
+        float current_total_energy = id(total_solar_energy).state;
+
+        if (last_total_energy > 0.0) {
+          float energy_delta = current_total_energy - last_total_energy;
+          daily_energy_kwh += energy_delta;
+        }
+        last_total_energy = current_total_energy;
+      }
+
+      return daily_energy_kwh;
+
+  - platform: template
+    name: "Battery Min Voltage"
+    id: battery_min_voltage
+    unit_of_measurement: "V"
+    accuracy_decimals: 1
+    device_class: voltage
+    state_class: measurement
+
+  - platform: template
+    name: "Battery Max Voltage"
+    id: battery_max_voltage
+    unit_of_measurement: "V"
+    accuracy_decimals: 1
+    device_class: voltage
+    state_class: measurement
+
+  - platform: template
+    name: "Max Charging Current"
+    id: max_charging_current
+    unit_of_measurement: "A"
+    accuracy_decimals: 2
+    device_class: current
+    state_class: measurement
+
+  - platform: template
+    name: "Max Inverter Current"
+    id: max_inverter_current
+    unit_of_measurement: "A"
+    accuracy_decimals: 2
+    device_class: current
+    state_class: measurement
+
+  - platform: template
+    name: "Max Charging Power"
+    id: max_charging_power
+    unit_of_measurement: "W"
+    accuracy_decimals: 0
+    device_class: power
+    state_class: measurement
+
+  - platform: template
+    name: "Max Inverter Power"
+    id: max_inverter_power
+    unit_of_measurement: "W"
+    accuracy_decimals: 0
+    device_class: power
+    state_class: measurement
+
+  - platform: template
+    name: "Battery Charging Energy Daily"
+    id: battery_charging_energy_daily
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 2
+    device_class: energy
+    state_class: total
+
+  - platform: template
+    name: "Battery Discharging Energy Daily"
+    id: battery_discharging_energy_daily
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 2
+    device_class: energy
+    state_class: total
+
+  - platform: template
+    name: "Solar Production Daily"
+    id: solar_production_daily
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 2
+    device_class: energy
+    state_class: total
+
+  - platform: template
+    name: "Total Operating Days"
+    id: total_operating_days
+    unit_of_measurement: "days"
+    accuracy_decimals: 0
+    icon: "mdi:calendar"
+
+  - platform: template
+    name: "Total Over-Discharges"
+    id: total_over_discharges
+    unit_of_measurement: "count"
+    accuracy_decimals: 0
+    icon: "mdi:alert"
+
+  - platform: template
+    name: "Total Full-Charges"
+    id: total_full_charges
+    unit_of_measurement: "count"
+    accuracy_decimals: 0
+    icon: "mdi:battery-positive"
+
+  - platform: template
+    name: "Battery Charging Energy Total"
+    id: battery_charging_energy_total
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 2
+    device_class: energy
+    state_class: total_increasing
+
+  - platform: template
+    name: "Battery Discharging Energy Total"
+    id: battery_discharging_energy_total
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 2
+    device_class: energy
+    state_class: total_increasing
+
+  - platform: template
+    name: "Solar Production Total"
+    id: solar_production_total
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 2
+    device_class: energy
+    state_class: total_increasing
+
+  - platform: template
+    name: "Charging Status"
+    id: charging_status
+    unit_of_measurement: ""
+    accuracy_decimals: 0
+    icon: "mdi:power"
+
+interval:
+  - interval: 10s
+    then:
+      - if:
+          condition:
+            lambda: "return id(renogy_rover_esp32_bc).connected();"
+          then:
+            - ble_client.ble_write:
+                id: renogy_rover_esp32_bc
+                service_uuid: "0000ffd0-0000-1000-8000-00805f9b34fb"
+                characteristic_uuid: "0000ffd1-0000-1000-8000-00805f9b34fb"
+                value: !lambda |-
+                  std::vector<uint8_t> request = {255, 3, 1, 0, 0, 34, 209, 241};
+                  ESP_LOGI("ble_write", "Sending periodic request: %s", format_hex_pretty(request).c_str());
+                  return request;8C:48:C2:B2"
+  nominal_voltage: "24"  # Adjusted to 24V based on your system
+  poll_interval: "10"    # Polling interval in seconds
+
+esp32_ble_tracker:
+  scan_parameters:
+    interval: 800ms
